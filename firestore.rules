@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitives
+    function isSignedIn() { return request.auth != null; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['firstName', 'lastName', 'username', 'createdAt']) &&
+             data.keys().size() == 4 &&
+             data.firstName is string && data.firstName.size() > 0 && data.firstName.size() <= 100 &&
+             data.lastName is string && data.lastName.size() > 0 && data.lastName.size() <= 100 &&
+             data.username is string && data.username.size() > 0 && data.username.size() <= 50 &&
+             data.createdAt == request.time;
+    }
+
+    function isValidUserUpdate(data) {
+      return data.firstName is string && data.firstName.size() > 0 && data.firstName.size() <= 100 &&
+             data.lastName is string && data.lastName.size() > 0 && data.lastName.size() <= 100 &&
+             data.username is string && data.username.size() > 0 && data.username.size() <= 50;
+    }
+
+    function isValidTask(data) {
+      return data.keys().hasAll(['title', 'startTime', 'endTime', 'isCompleted', 'categoryColor', 'date', 'createdAt']) &&
+             data.keys().size() >= 7 && data.keys().size() <= 10 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.startTime is string && data.startTime.size() == 5 &&
+             data.endTime is string && data.endTime.size() == 5 &&
+             data.isCompleted is bool &&
+             data.categoryColor is string && data.categoryColor.size() > 0 && data.categoryColor.size() <= 60 &&
+             data.date is string && data.date.size() > 0 && data.date.size() <= 50 &&
+             data.createdAt == request.time &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+             (!('isRecurring' in data) || data.isRecurring is bool) &&
+             (!('recurringDays' in data) || (data.recurringDays is list && data.recurringDays.size() <= 7));
+    }
+
+    function isValidTaskUpdate(data) {
+      return (!('title' in data) || (data.title is string && data.title.size() > 0 && data.title.size() <= 200)) &&
+             (!('startTime' in data) || (data.startTime is string && data.startTime.size() == 5)) &&
+             (!('endTime' in data) || (data.endTime is string && data.endTime.size() == 5)) &&
+             (!('isCompleted' in data) || (data.isCompleted is bool)) &&
+             (!('categoryColor' in data) || (data.categoryColor is string && data.categoryColor.size() > 0 && data.categoryColor.size() <= 60)) &&
+             (!('date' in data) || (data.date is string && data.date.size() > 0 && data.date.size() <= 50)) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+             (!('isRecurring' in data) || data.isRecurring is bool) &&
+             (!('recurringDays' in data) || (data.recurringDays is list && data.recurringDays.size() <= 7));
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidUser(incoming());
+      
+      allow update: if isSignedIn() && request.auth.uid == userId && isValidId(userId) &&
+                       isValidUserUpdate(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName']);
+                       
+      allow delete: if false;
+
+      match /tasks/{taskId} {
+        allow get: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(taskId);
+        allow list: if isSignedIn() && request.auth.uid == userId && isValidId(userId);
+
+        allow create: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(taskId) && isValidTask(incoming());
+
+        allow update: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(taskId) &&
+                         isValidTaskUpdate(incoming()) &&
+                         incoming().createdAt == existing().createdAt &&
+                         (
+                           (incoming().diff(existing()).affectedKeys().hasOnly(['isCompleted'])) ||
+                           (incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'startTime', 'endTime', 'categoryColor', 'date', 'isRecurring', 'recurringDays'])) ||
+                           (incoming().diff(existing()).affectedKeys().hasAny(['title', 'description', 'startTime', 'endTime', 'categoryColor', 'date', 'isRecurring', 'recurringDays', 'isCompleted']))
+                         );
+
+        allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(taskId);
+      }
+    }
+  }
+}

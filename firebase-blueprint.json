@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile document",
+      "type": "object",
+      "properties": {
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "username": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["firstName", "lastName", "username", "createdAt"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "User's calendar task",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "isCompleted": { "type": "boolean" },
+        "categoryColor": { "type": "string" },
+        "date": { "type": "string" },
+        "isRecurring": { "type": "boolean" },
+        "recurringDays": { "type": "array", "items": { "type": "number" } },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "startTime", "endTime", "isCompleted", "categoryColor", "date", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profile information"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "Stores a single task belonging to a user"
+    }
+  }
+}

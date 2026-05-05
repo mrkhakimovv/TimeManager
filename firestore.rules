@@ -29,7 +29,7 @@ service cloud.firestore {
 
     function isValidTask(data) {
       return data.keys().hasAll(['title', 'startTime', 'endTime', 'isCompleted', 'categoryColor', 'date', 'createdAt']) &&
-             data.keys().size() >= 7 && data.keys().size() <= 10 &&
+             data.keys().size() >= 7 && data.keys().size() <= 13 &&
              data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
              data.startTime is string && data.startTime.size() == 5 &&
              data.endTime is string && data.endTime.size() == 5 &&
@@ -39,7 +39,10 @@ service cloud.firestore {
              data.createdAt == request.time &&
              (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
              (!('isRecurring' in data) || data.isRecurring is bool) &&
-             (!('recurringDays' in data) || (data.recurringDays is list && data.recurringDays.size() <= 7));
+             (!('recurringDays' in data) || (data.recurringDays is list && data.recurringDays.size() <= 7)) &&
+             (!('isArchived' in data) || data.isArchived is bool) &&
+             (!('isFailed' in data) || data.isFailed is bool) &&
+             (!('isNotified' in data) || data.isNotified is bool);
     }
 
     function isValidTaskUpdate(data) {
@@ -51,7 +54,10 @@ service cloud.firestore {
              (!('date' in data) || (data.date is string && data.date.size() > 0 && data.date.size() <= 50)) &&
              (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
              (!('isRecurring' in data) || data.isRecurring is bool) &&
-             (!('recurringDays' in data) || (data.recurringDays is list && data.recurringDays.size() <= 7));
+             (!('recurringDays' in data) || (data.recurringDays is list && data.recurringDays.size() <= 7)) &&
+             (!('isArchived' in data) || data.isArchived is bool) &&
+             (!('isFailed' in data) || data.isFailed is bool) &&
+             (!('isNotified' in data) || data.isNotified is bool);
     }
 
     match /users/{userId} {
@@ -77,9 +83,13 @@ service cloud.firestore {
                          isValidTaskUpdate(incoming()) &&
                          incoming().createdAt == existing().createdAt &&
                          (
+                           (incoming().diff(existing()).affectedKeys().hasOnly(['isArchived'])) ||
                            (incoming().diff(existing()).affectedKeys().hasOnly(['isCompleted'])) ||
+                           (incoming().diff(existing()).affectedKeys().hasOnly(['isCompleted', 'isNotified'])) ||
+                           (incoming().diff(existing()).affectedKeys().hasOnly(['isFailed', 'isNotified'])) ||
+                           (incoming().diff(existing()).affectedKeys().hasOnly(['isNotified'])) ||
                            (incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'startTime', 'endTime', 'categoryColor', 'date', 'isRecurring', 'recurringDays'])) ||
-                           (incoming().diff(existing()).affectedKeys().hasAny(['title', 'description', 'startTime', 'endTime', 'categoryColor', 'date', 'isRecurring', 'recurringDays', 'isCompleted']))
+                           (incoming().diff(existing()).affectedKeys().hasAny(['title', 'description', 'startTime', 'endTime', 'categoryColor', 'date', 'isRecurring', 'recurringDays', 'isCompleted', 'isArchived', 'isFailed', 'isNotified']))
                          );
 
         allow delete: if isSignedIn() && request.auth.uid == userId && isValidId(userId) && isValidId(taskId);

@@ -15,7 +15,11 @@ import {
   Check, 
   MoreHorizontal, 
   Clock,
-  LogOut
+  LogOut,
+  Archive,
+  Trash2,
+  X,
+  Bell
 } from 'lucide-react';
 import Auth from './Auth';
 import { auth, db } from './firebase';
@@ -33,6 +37,9 @@ interface Task {
   date: Date;
   isRecurring?: boolean;
   recurringDays?: number[];
+  isArchived?: boolean;
+  isFailed?: boolean;
+  isNotified?: boolean;
 }
 
 export default function App() {
@@ -50,6 +57,64 @@ export default function App() {
   const [newTaskStartTime, setNewTaskStartTime] = useState('09:00');
   const [newTaskEndTime, setNewTaskEndTime] = useState('10:00');
   const [recurringDays, setRecurringDays] = useState<number[]>([]);
+  
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [activeNotification, setActiveNotification] = useState<Task | null>(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!user || activeNotification) return;
+
+    const h = currentTime.getHours();
+    const m = currentTime.getMinutes();
+    const currentMins = h * 60 + m;
+    const currentDay = currentTime.getDay();
+    const isToday = (d: Date) => d.getDate() === currentTime.getDate() && d.getMonth() === currentTime.getMonth() && d.getFullYear() === currentTime.getFullYear();
+    
+    const overdueTask = tasks.find(t => {
+      if (t.isCompleted || t.isArchived || t.isFailed || t.isNotified) return false;
+      const [th, tm] = t.endTime.split(':').map(Number);
+      const endMins = th * 60 + tm;
+      if (currentMins >= endMins) {
+        if (t.isRecurring && t.recurringDays) {
+          return t.recurringDays.includes(currentDay);
+        } else {
+          return isToday(t.date);
+        }
+      }
+      return false;
+    });
+
+    if (overdueTask) {
+      setActiveNotification(overdueTask);
+    }
+  }, [currentTime, tasks, user, activeNotification]);
+
+  const handleNotificationAction = async (status: 'completed' | 'failed' | 'dismiss') => {
+    if (!activeNotification || !user) return;
+    const taskId = activeNotification.id;
+    setActiveNotification(null);
+
+    try {
+      if (status === 'dismiss') {
+         await updateDoc(doc(db, `users/${user.uid}/tasks`, taskId), { isNotified: true });
+      } else {
+         await updateDoc(doc(db, `users/${user.uid}/tasks`, taskId), {
+           isCompleted: status === 'completed',
+           isFailed: status === 'failed',
+           isNotified: true
+         });
+      }
+    } catch (e) {
+      console.error("Error updating notification status:", e);
+    }
+  };
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -106,6 +171,10 @@ export default function App() {
 
   const filteredTasks = tasks
     .filter(task => {
+      if (task.isArchived) return false;
+      if (isSearching && searchQuery.trim() !== '') {
+        return task.title.toLowerCase().includes(searchQuery.toLowerCase());
+      }
       if (task.isRecurring && task.recurringDays) {
         return task.recurringDays.includes(selectedDate.getDay());
       }
@@ -124,6 +193,29 @@ export default function App() {
       });
     } catch (e) {
       console.error("Error toggling task:", e);
+    }
+  };
+
+  const archiveTask = async (taskId: string) => {
+    if (!user) return;
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    try {
+      await updateDoc(doc(db, `users/${user.uid}/tasks`, taskId), {
+        isArchived: !task.isArchived
+      });
+    } catch (e) {
+      console.error("Error archiving task:", e);
+    }
+  };
+
+  const deleteTask = async (taskId: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, `users/${user.uid}/tasks`, taskId));
+    } catch (e) {
+      console.error("Error deleting task:", e);
     }
   };
 
@@ -178,33 +270,100 @@ export default function App() {
       {/* Main Content Overlay */}
       <div className="relative z-10 flex flex-col h-screen overflow-y-auto hide-scrollbar px-6 py-10">
         
+        {/* Notification Banner */}
+        {activeNotification && (
+          <div className="fixed top-6 left-1/2 -translate-x-1/2 w-[calc(100%-3rem)] max-w-sm bg-indigo-900/95 backdrop-blur-xl border border-indigo-500/50 p-4 rounded-3xl shadow-2xl shadow-indigo-900/50 z-50 flex flex-col gap-3">
+            <div className="flex justify-between items-start">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-indigo-500/30 rounded-full">
+                  <Bell className="text-indigo-200" size={16} />
+                </div>
+                <h4 className="font-bold text-white text-sm">Vazifa yakunlandi</h4>
+              </div>
+              <button onClick={() => handleNotificationAction('dismiss')} className="text-white/50 hover:text-white p-1 rounded-full transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+            <p className="text-sm font-medium text-indigo-100 px-1">{activeNotification.title}</p>
+            <p className="text-xs font-bold text-indigo-300 px-1 -mt-2">{activeNotification.startTime} - {activeNotification.endTime}</p>
+            
+            <p className="text-xs font-semibold text-white/50 px-1 mt-1">Vazifa muvaffaqiyatli bajarildimi?</p>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => handleNotificationAction('completed')}
+                className="flex-1 bg-green-500/20 hover:bg-green-500/30 text-green-300 py-2 rounded-xl text-sm font-bold border border-green-500/30 transition-all flex justify-center items-center gap-1"
+              >
+                <Check size={14} /> Bajarildi
+              </button>
+              <button 
+                onClick={() => handleNotificationAction('failed')}
+                className="flex-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 py-2 rounded-xl text-sm font-bold border border-red-500/30 transition-all flex justify-center items-center gap-1"
+              >
+                <X size={14} /> Bajarilmadi
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <header className="flex justify-between items-center mb-8">
-          <div>
-            <h2 className="text-white/60 text-sm font-medium uppercase tracking-wider mb-1">
-              {format(selectedDate, 'MMMM yyyy', { locale: uz })}
-            </h2>
-            <h1 className="text-white text-3xl font-bold tracking-tight">
-              {user?.displayName ? user.displayName : "Salom, Do'stim"} 👋
-            </h1>
-          </div>
-          <div className="flex gap-3">
-            <button className="w-10 h-10 rounded-full border border-white/20 flex items-center justify-center hover:bg-white/10 transition-colors">
-              <Search size={20} className="text-white" />
-            </button>
-            <button onClick={handleLogout} className="w-10 h-10 rounded-full border border-white/20 relative flex items-center justify-center hover:bg-white/10 transition-colors">
-              <LogOut size={20} className="text-white" />
-            </button>
-          </div>
+          {isSearching ? (
+            <div className="flex-1 flex gap-3 h-10 items-center">
+              <input 
+                 autoFocus
+                 type="text"
+                 placeholder="Vazifa nomi bo'yicha qidirish..."
+                 value={searchQuery}
+                 onChange={(e) => setSearchQuery(e.target.value)}
+                 className="flex-1 bg-white/10 border border-white/20 rounded-full h-full px-4 outline-none focus:ring-1 focus:ring-white/50 placeholder:text-white/40 text-white font-medium text-sm transition-all"
+              />
+              <button 
+                onClick={() => {
+                  setIsSearching(false);
+                  setSearchQuery('');
+                }}
+                className="text-white/60 hover:text-white text-sm font-semibold transition-colors shrink-0"
+              >
+                Bekor
+              </button>
+            </div>
+          ) : (
+            <>
+              <div>
+                <h2 className="text-white/80 text-sm font-semibold uppercase tracking-wider mb-2">
+                  {user?.displayName ? user.displayName : "Salom, Do'stim"} 👋
+                </h2>
+                <h1 className="text-white text-4xl font-bold tracking-tight tabular-nums">
+                  {new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(currentTime)}
+                </h1>
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setIsSearching(true)}
+                  className="w-10 h-10 rounded-full border border-white/20 flex items-center justify-center hover:bg-white/10 transition-colors"
+                >
+                  <Search size={20} className="text-white" />
+                </button>
+                <button onClick={handleLogout} className="w-10 h-10 rounded-full border border-white/20 relative flex items-center justify-center hover:bg-white/10 transition-colors">
+                  <LogOut size={20} className="text-white" />
+                </button>
+              </div>
+            </>
+          )}
         </header>
 
-        {/* Horizontal Calendar */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-white/80 text-lg font-semibold">Taqvim</h3>
+        {/* Horizontal Calendar -- hidden when searching */}
+        {!isSearching && (
+          <div className="mb-8">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-white/80 text-lg font-semibold tabular-nums tracking-widest">{format(selectedDate, 'dd.MM.yyyy')}</h3>
             <div className="flex bg-white/10 p-1 rounded-xl w-36">
               <button 
-                onClick={() => setCalendarView('xafta')}
+                onClick={() => {
+                  setCalendarView('xafta');
+                  setSelectedDate(new Date());
+                }}
                 className={`flex-1 py-1 text-xs font-semibold rounded-lg transition-all duration-300 ${calendarView === 'xafta' ? 'bg-white text-black shadow-md' : 'text-white/60 hover:text-white'}`}
               >
                 Xafta
@@ -246,11 +405,14 @@ export default function App() {
             })}
           </div>
         </div>
+        )}
 
         {/* Tasks Section */}
         <div className="flex-1">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-white text-xs font-bold uppercase tracking-widest opacity-50">Bugungi reja</h3>
+            <h3 className="text-white text-xs font-bold uppercase tracking-widest opacity-50">
+              {isSearching ? 'Qidiruv natijalari' : 'Bugungi reja'}
+            </h3>
             <span className="text-xs font-bold px-2.5 py-1 rounded-full glass-card">
               {filteredTasks.filter(t => t.isCompleted).length} / {filteredTasks.length}
             </span>
@@ -262,7 +424,9 @@ export default function App() {
                  <div className="w-16 h-16 mb-4 rounded-full border border-white/20 flex items-center justify-center bg-white/5">
                    <Clock className="text-white/60" size={28} />
                  </div>
-                 <p className="text-white/60 font-medium">Bu kunga reja yo'q</p>
+                 <p className="text-white/60 font-medium">
+                   {isSearching ? 'Bunday vazifa topilmadi' : "Bu kunga reja yo'q"}
+                 </p>
                </div>
             ) : (
               filteredTasks.map(task => (
@@ -286,18 +450,47 @@ export default function App() {
                     {task.description && (
                       <p className="text-white/60 text-xs truncate mt-0.5">{task.description}</p>
                     )}
+                    {isSearching && (
+                      <p className="text-purple-300/70 text-[11px] mt-1 pr-2 truncate font-medium">
+                        {task.isRecurring && task.recurringDays
+                          ? `Kunlar: ${task.recurringDays.map(d => ['Yak', 'Dush', 'Sesh', 'Chor', 'Pay', 'Jum', 'Shan'][d]).join(', ')}`
+                          : `Sana: ${format(task.date, 'dd.MM.yyyy')}`
+                        }
+                      </p>
+                    )}
+                  </div>
+                  
+                  {/* Actions */}
+                  <div className="flex gap-2 mr-1">
+                    <button 
+                      onClick={() => archiveTask(task.id)}
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-white/40 hover:bg-white/10 hover:text-white transition-colors"
+                      title="Arxivlash"
+                    >
+                      <Archive size={16} />
+                    </button>
+                    <button 
+                      onClick={() => deleteTask(task.id)}
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-white/40 hover:bg-red-500/20 hover:text-red-400 transition-colors"
+                      title="O'chirish"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                   
                   {/* Checkbox */}
                   <button 
                     onClick={() => toggleTask(task.id)}
-                    className={`w-6 h-6 rounded-full border border-white/30 flex justify-center items-center flex-shrink-0 transition-colors ${
+                    className={`w-6 h-6 rounded-full border flex justify-center items-center flex-shrink-0 transition-colors ${
                       task.isCompleted 
                         ? 'bg-white text-black border-white' 
-                        : 'hover:bg-white/10'
+                        : task.isFailed
+                        ? 'bg-red-500/80 border-red-500 text-white'
+                        : 'border-white/30 hover:bg-white/10'
                     }`}
                   >
                     {task.isCompleted && <div className="w-2.5 h-2.5 bg-black rounded-full"></div>}
+                    {task.isFailed && <X size={14} className="text-white stroke-[3px]" />}
                   </button>
                 </div>
               ))

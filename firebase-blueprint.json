@@ -26,7 +26,10 @@
         "date": { "type": "string" },
         "isRecurring": { "type": "boolean" },
         "recurringDays": { "type": "array", "items": { "type": "number" } },
-        "createdAt": { "type": "string" }
+        "createdAt": { "type": "string" },
+        "isArchived": { "type": "boolean" },
+        "isFailed": { "type": "boolean" },
+        "isNotified": { "type": "boolean" }
       },
       "required": ["title", "startTime", "endTime", "isCompleted", "categoryColor", "date", "createdAt"]
     }
